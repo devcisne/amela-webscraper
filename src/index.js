@@ -5,30 +5,22 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-let url = "https://www.descubre.vc/?page=2";
-
-const getWebContent = async (url) => {
-  try {
-    return await axios.get(url);
-  } catch (error) {
-    console.log(`Request failed. error:`, error.response);
-  }
-};
+let url = "https://www.descubre.vc/";
 
 const withDB = async (operations) => {
   const dbName = "amela-webscraper-dev";
 
   // const url = "mongodb://127.0.0.1:27017";
   const url = `mongodb+srv://${process.env.MONGOUSER}:${process.env.MONGOPASS}@personalwebsite.r9tnm38.mongodb.net/?retryWrites=true&w=majority`;
-  console.log(url);
 
   try {
     const client = await MongoClient.connect(url, { useNewUrlParser: true });
     const db = client.db(dbName);
     const collection = db.collection("companies");
 
-    await operations(collection);
+    let operationResult = await operations(collection);
     client.close();
+    return operationResult;
   } catch (error) {
     console.log(
       `The following error was found with the DB operation: ${error}`
@@ -36,7 +28,39 @@ const withDB = async (operations) => {
   }
 };
 
-getWebContent(url)
+const getCompaniesInfoArr = async () => {
+  let result = await withDB(async (collection) => {
+    // const ID = req.params.id;
+    return await collection
+      .find()
+      .toArray()
+      .then((companiesInfoArr) => {
+        console.log("existing companiesInfoArr :", companiesInfoArr);
+        return companiesInfoArr;
+      })
+      .catch((error) => {
+        console.error(`The following error was found: ${error}`);
+      });
+  });
+  return result;
+};
+
+const containsObject = (list, obj) => {
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].company == obj.company && list[i].amount == obj.amount) {
+      console.log(
+        `filtering company ${obj.company} from entries to insert for duplicate`
+      );
+      return true;
+    }
+  }
+  return false;
+};
+
+let companiesInfoArr = await getCompaniesInfoArr();
+
+axios
+  .get(url)
   .then((response) => {
     // console.log(response.data);
     const $ = cheerio.load(response.data);
@@ -51,6 +75,11 @@ getWebContent(url)
         let levantoObj = { links: [] };
 
         if (element.parent.attribs.class != "flex") {
+          let contentUL = $(element.parent.parent.nextSibling)
+            .find("ul")
+            .html();
+          levantoObj.content = contentUL.trim();
+
           let noticiaSpan = $(element.parent.parent.nextSibling.nextSibling)
             .find("a")
             .each((i, element) => {
@@ -66,24 +95,39 @@ getWebContent(url)
         // console.log(levantoString);
         levantoObj.company = levantoString.split(" ")[0];
         levantoObj.amount = levantoString.split(" ")[2];
-        levantoObjArr.push(levantoObj);
+        levantoObj.createdAt = new Date();
+
+        if (!containsObject(companiesInfoArr, levantoObj)) {
+          levantoObjArr.push(levantoObj);
+        }
         // here
       });
 
-      withDB(async (collection) => {
-        await collection
-          .insertMany(levantoObjArr)
-          .then((insertResult) => {
-            console.log(insertResult);
-          })
-          .catch((error) => {
-            console.error(`The following error was found: ${error}`);
-          });
-      });
-
-      console.log(levantoObjArr);
+      if (levantoObjArr.length > 0) {
+        withDB(async (collection) => {
+          await collection
+            .insertMany(levantoObjArr)
+            .then((insertResult) => {
+              console.log("successfully inserted", insertResult);
+            })
+            .catch((error) => {
+              console.error(`The following error was found: ${error}`);
+            });
+        });
+      } else {
+        console.log("No new entries to insert in database");
+      }
     }
   })
   .catch((err) => {
     console.log(`Request failed. error:`, err);
   });
+
+// export const handler = async (event) => {
+//   // TODO implement
+//   const response = {
+//     statusCode: 200,
+//     body: JSON.stringify("The lambda function has completed running successfully"),
+//   };
+//   return response;
+// };
