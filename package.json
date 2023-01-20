@@ -4,7 +4,7 @@
   "description": "A project to automate some of the amela newsletter",
   "main": "index.js",
   "scripts": {
-    "start": "node ./src/index.js",
+    "start": "node index.js",
     "test": "jest"
   },
   "author": "Diego Cisneros",
